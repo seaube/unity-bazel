@@ -138,6 +138,7 @@ namespace UnityBazel {
 
 				if(File.Exists(userOutputPath)) {
 					File.SetAttributes(userOutputPath, FileAttributes.Normal);
+					Directory.CreateDirectory(Path.GetDirectoryName(userOutputPath));
 				}
 
 				File.Copy(fullOutputPath, userOutputPath, true);
