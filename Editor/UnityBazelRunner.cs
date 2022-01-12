@@ -13,13 +13,7 @@ using System.Linq;
 namespace UnityBazel {
 	[InitializeOnLoadAttribute]
 	public static class UnityBazelRunner {
-		const string initialCopyStatekey = "BazelInitialCopyPackagesRan";
-
 		static UnityBazelRunner() {
-			if(!SessionState.GetBool(initialCopyStatekey, false)) {
-				EditorApplication.delayCall += async () => await CopyPackages();
-			}
-
 			UnityBazelSettings.refresh += () => {
 				EditorApplication.delayCall += async () => await CopyPackages();
 			};
@@ -31,12 +25,38 @@ namespace UnityBazel {
 		}
 
 		public static async Task CopyPackages() {
+			await CopyPackages("");
+		}
+
+		private static string GetPackagePath
+			( string rootDirectory
+			, string packageName
+			)
+		{
+			var projectPackagePath = Path.GetFullPath($"Packages/{packageName}");
+			if(String.IsNullOrEmpty(rootDirectory)) {
+				return projectPackagePath;
+			}
+
+			// https://docs.unity3d.com/ScriptReference/Application-dataPath.html
+			// In Unity Editor the Application.dataPath is the editor assets folder
+			var projectDir = Application.dataPath.Substring(
+				0,
+				Application.dataPath.Length - ("/Assets".Length)
+			);
+
+			return Path.Combine(
+				rootDirectory,
+				Path.GetRelativePath(projectDir, projectPackagePath)
+			);
+		}
+
+		public static async Task CopyPackages
+			( string rootDirectory
+			)
+		{
 			var settings = UnityBazelSettings.GetSettings();
 			if(settings == null || settings.copiedPackages == null) return;
-			if(!settings.copiedPackages.Any()) {
-				settings.lastCopiedFiles = null;
-				return;
-			}
 
 			settings.lastCopiedFiles = new List<string>();
 
@@ -54,13 +74,14 @@ namespace UnityBazel {
 			}
 
 			var buildResult = Bazel.Build(packagesStr);
-
 			var infos = await asyncInfos;
-
 			var tasks = new List<Task<List<string>>>();
 
 			foreach(var copyPkg in settings.copiedPackages) {
-				if(String.IsNullOrEmpty(copyPkg.bazelPackage)) continue;
+				if(String.IsNullOrEmpty(copyPkg.bazelPackage)) {
+					UnityEngine.Debug.LogWarning("Unset bazel package in bazel settings");
+					continue;
+				}
 
 				if(Application.isEditor) {
 					if(copyPkg.mode == UnityBazelPackageCopyMode.StandaloneOnly) {
@@ -72,15 +93,18 @@ namespace UnityBazel {
 					}
 				}
 
-				tasks.Add(Task.Run(() => PackageQueryComplete(
+				var outputPathPattern = (String.IsNullOrEmpty(copyPkg.outputPath)
+					? settings.defaultOutputPath
+					: copyPkg.outputPath!);
+
+				tasks.Add(PackageQueryComplete(
 					Bazel.QueryOutputs(copyPkg.bazelPackage!),
-					outputPathPattern: (String.IsNullOrEmpty(copyPkg.outputPath)
-						? settings.defaultOutputPath
-						: copyPkg.outputPath!),
+					outputPathPattern: outputPathPattern,
 					executionRoot: infos["execution_root"],
 					bazelBin: infos["bazel-bin"],
-					workspace: infos["workspace"]
-				)));
+					workspace: infos["workspace"],
+					rootDirectory: rootDirectory
+				));
 			}
 
 			foreach(var task in tasks) {
@@ -91,8 +115,6 @@ namespace UnityBazel {
 			}
 
 			await buildResult;
-			AssetDatabase.Refresh();
-			SessionState.SetBool(initialCopyStatekey, true);
 		}
 
 		private static async Task<List<string>> PackageQueryComplete
@@ -101,6 +123,7 @@ namespace UnityBazel {
 			, string              executionRoot
 			, string              bazelBin
 			, string              workspace
+			, string              rootDirectory
 			)
 		{
 			executionRoot = executionRoot.Replace('\\', '/');
@@ -135,6 +158,31 @@ namespace UnityBazel {
 					"{EXTNAME}",
 					Path.GetExtension(fullOutputPath)
 				);
+
+				if(userOutputPath.StartsWith("Packages/")) {
+					var slashIdx = userOutputPath.IndexOf('/', "Packages".Length);
+					var pkgNameEndSlashIdx = userOutputPath.IndexOf('/', slashIdx + 1);
+
+					var pkgName = userOutputPath.Substring(
+						slashIdx,
+						pkgNameEndSlashIdx - slashIdx
+					);
+
+					if(String.IsNullOrEmpty(pkgName)) {
+						UnityEngine.Debug.LogError(
+							$"Couldn't find package name in output path. '{filePath}' will " +
+							$"not be coped using '{outputPathPattern}' output pattern."
+						);
+						continue;
+					}
+
+					var packagePath = GetPackagePath(rootDirectory, pkgName);
+					userOutputPath = packagePath + userOutputPath.Substring(
+						pkgNameEndSlashIdx
+					);
+				} else if(!String.IsNullOrEmpty(rootDirectory)) {
+					userOutputPath = Path.Combine(rootDirectory, userOutputPath);
+				}
 
 				if(File.Exists(userOutputPath)) {
 					File.SetAttributes(userOutputPath, FileAttributes.Normal);
