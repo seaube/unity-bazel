@@ -121,35 +121,6 @@ namespace UnityBazel {
 					};
 					scrollView.Add(refreshButton);
 
-					var copiedFilesListView = new ListView(
-						itemsSource: settingsObj.lastCopiedFiles,
-						itemHeight: 20,
-						makeItem: () => new Label(),
-						bindItem: (visualElement, index) => {
-							var label = (visualElement as Label)!;
-							label.Bind(settings);
-							label.bindingPath = $"lastCopiedFiles[{index}]";
-							if(settingsObj.lastCopiedFiles != null) {
-								if(settingsObj.lastCopiedFiles.Count > index) {
-									label.text = "";
-								} else {
-									label.text = settingsObj.lastCopiedFiles[index];
-								}
-							}
-						}
-					);
-
-					copiedFilesListView.horizontalScrollingEnabled = false;
-					copiedFilesListView.style.maxHeight = 200;
-
-					var outputFilesTitle = new Label("Output Files");
-					outputFilesTitle.style.fontSize = 20;
-					outputFilesTitle.style.paddingBottom = 8;
-					outputFilesTitle.style.paddingTop = 8;
-
-					scrollView.Add(outputFilesTitle);
-					scrollView.Add(copiedFilesListView);
-
 					rootElement.Add(scrollView);
 					rootElement.Bind(settings);
 				},
