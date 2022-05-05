@@ -13,9 +13,30 @@ using System.Linq;
 namespace UnityBazel {
 	[InitializeOnLoadAttribute]
 	public static class UnityBazelRunner {
+		const string initialCopyStatekey = "BazelInitialCopyPackagesRan";
+		private static bool copyingPackagesInProgress = false;
 		static UnityBazelRunner() {
+			if(!SessionState.GetBool(initialCopyStatekey, false)) {
+				EditorApplication.delayCall += async () => {
+					await CopyPackages();
+					SessionState.SetBool(initialCopyStatekey, true);
+				};
+			}
+
 			UnityBazelSettings.refresh += () => {
 				EditorApplication.delayCall += async () => await CopyPackages();
+			};
+
+			EditorApplication.playModeStateChanged += state => {
+				if(state == PlayModeStateChange.ExitingEditMode) {
+					if(copyingPackagesInProgress) {
+						UnityEngine.Debug.LogError(
+							"Bazel copy packages in progress. Wait until done or cancel " +
+							"before entering play mode."
+						);
+						EditorApplication.isPlaying = false;
+					}
+				}
 			};
 		}
 
@@ -51,7 +72,26 @@ namespace UnityBazel {
 			);
 		}
 
-		public static async Task CopyPackages
+		private static async Task CopyPackages
+			( string rootDirectory
+			)
+		{
+			if(copyingPackagesInProgress) {
+				UnityEngine.Debug.LogWarning(
+					"Unity bazel runner in progress. Try again once finished"
+				);
+				return;
+			}
+
+			copyingPackagesInProgress = true;
+			try {
+				await _CopyPackages(rootDirectory);
+			} finally {
+				copyingPackagesInProgress = false;
+			}
+		}
+
+		private static async Task _CopyPackages
 			( string rootDirectory
 			)
 		{
