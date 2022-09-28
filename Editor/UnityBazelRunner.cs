@@ -157,6 +157,26 @@ namespace UnityBazel {
 			await buildResult;
 		}
 
+		static void TryImportAssets
+			( List<string> assets
+			)
+		{
+			EditorApplication.delayCall += () => {
+				if(!Progress.running) {
+					try {
+						AssetDatabase.StartAssetEditing();
+						foreach(var asset in assets) {
+							AssetDatabase.ImportAsset(asset);
+						}
+					} finally {
+						AssetDatabase.StopAssetEditing();
+					}
+				} else {
+					TryImportAssets(assets);
+				}
+			};
+		}
+
 		private static async Task<List<string>> PackageQueryComplete
 			( Task<List<string>>  outputPathsTask
 			, string              outputPathPattern
@@ -235,6 +255,8 @@ namespace UnityBazel {
 
 				results.Add(userOutputPath);
 			}
+
+			TryImportAssets(results);
 
 			return results;
 		}
