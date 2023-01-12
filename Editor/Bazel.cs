@@ -104,11 +104,16 @@ namespace UnityBazel {
 		}
 
 		public static Task<List<string>> QueryOutputs
-			( string package
+			( List<string> packages
 			)
 		{
+			var packagesStr = "";
+			foreach(var pkgStr in packages) {
+				packagesStr += pkgStr + " ";
+			}
+
 			var progressId = Progress.Start(
-				name: $"Bazel Query Outputs {package}",
+				name: $"Bazel Query Outputs {packagesStr}",
 				options: Progress.Options.Indefinite
 			);
 			var tcs = new TaskCompletionSource<List<string>>();
@@ -117,7 +122,7 @@ namespace UnityBazel {
 				StartInfo = {
 					FileName = "bazel",
 					Arguments =
-						$"cquery {package} --output=starlark " +
+						$"cquery {packagesStr} --output=starlark " +
 						"--starlark:expr=\"'\\n'.join(" +
 						"[f.path for f in target.files.to_list()]" +
 						")\"",
@@ -185,6 +190,7 @@ namespace UnityBazel {
 
 			Progress.RegisterCancelCallback(progressId, () => {
 				process.Kill();
+				Progress.Remove(progressId);
 				return true;
 			});
 

@@ -11,20 +11,14 @@ using System.Linq;
 #nullable enable
 
 namespace UnityBazel {
-	[InitializeOnLoadAttribute]
 	public static class UnityBazelRunner {
-		const string initialCopyStatekey = "BazelInitialCopyPackagesRan";
+		const string watchProgressIdSessionKey = "BazelWatchProgressId";
 		private static bool copyingPackagesInProgress = false;
-		static UnityBazelRunner() {
-			if(!SessionState.GetBool(initialCopyStatekey, false)) {
-				EditorApplication.delayCall += async () => {
-					await CopyPackages();
-					SessionState.SetBool(initialCopyStatekey, true);
-				};
-			}
 
+		[InitializeOnLoadMethod]
+		static void Init() {
 			UnityBazelSettings.refresh += () => {
-				EditorApplication.delayCall += async () => await CopyPackages();
+				EditorApplication.delayCall += async () => await DelayedInit();
 			};
 
 			EditorApplication.playModeStateChanged += state => {
@@ -38,11 +32,108 @@ namespace UnityBazel {
 					}
 				}
 			};
+
+			foreach(var entry in _watchers) {
+				entry.Value.Dispose();
+			}
+			_watchers.Clear();
+
+			EditorApplication.delayCall += async () => {
+				await DelayedInit();
+			};
+		}
+
+		private static async Task DelayedInit() {
+			var settings = UnityBazelSettings.GetSettings();
+			if(settings == null || settings.copiedPackages == null) return;
+
+			if(settings.buildOnEditorStart) {
+				await CopyPackages();
+			}
+
+			if(settings.watchOnEditorStart) {
+				await WatchForChanges();
+			} else {
+				ClearExistingWatch();
+			}
+		}
+
+		private static void ClearExistingWatch() {
+			var watchProgressId = SessionState.GetInt(watchProgressIdSessionKey, -1);
+			if(watchProgressId != -1) {
+				Progress.Cancel(watchProgressId);
+				SessionState.EraseInt(watchProgressIdSessionKey);
+			}
 		}
 
 		[Shortcut("Bazel/Copy Packages")]
 		private static async void CopyPackagesShortcut() {
 			await CopyPackages();
+		}
+
+		private static Dictionary<string, FileSystemWatcher> _watchers = new();
+		[Shortcut("Bazel/Start Output File Watcher")]
+		private static async void WatchForChangesShortcut() {
+			await WatchForChanges();
+		}
+
+		private static async Task WatchForChanges() {
+			var settings = UnityBazelSettings.GetSettings();
+			if(settings == null || settings.copiedPackages == null) return;
+
+			ClearExistingWatch();
+
+			List<string> pkgLabels = new();
+			foreach(var entry in settings.copiedPackages) {
+				if(entry.bazelPackage == null) continue;
+				pkgLabels.Add(entry.bazelPackage);
+			}
+
+			if(pkgLabels.Count == 0) {
+				return;
+			}
+
+			var outputPaths = await Bazel.QueryOutputs(pkgLabels);
+			var watchProgressId = Progress.Start(
+				"Watching for bazel output changes",
+				null,
+				Progress.Options.Indefinite
+			);
+			SessionState.SetInt(watchProgressIdSessionKey, watchProgressId);
+
+			foreach(var outputPath in outputPaths) {
+				var directory = Path.GetDirectoryName(outputPath);
+				if(_watchers.ContainsKey(directory)) {
+					continue;
+				}
+
+				var watcher = new FileSystemWatcher(directory);
+				var childWatchProgress = Progress.Start(
+					directory,
+					null,
+					Progress.Options.Indefinite,
+					watchProgressId
+				);
+
+				watcher.Changed += (_, ev) => {
+					var relPath = Path.GetRelativePath(directory, ev.FullPath);
+					Progress.SetDescription(childWatchProgress, $"{relPath} changed");
+				};
+
+				watcher.EnableRaisingEvents = true;
+
+				_watchers.Add(directory, watcher);
+			}
+
+			Progress.RegisterCancelCallback(watchProgressId, () => {
+				foreach(var entry in _watchers) {
+					entry.Value.Dispose();
+				}
+				_watchers.Clear();
+				Progress.Remove(watchProgressId);
+				SessionState.EraseInt(watchProgressIdSessionKey);
+				return true;
+			});
 		}
 
 		public static async Task CopyPackages() {
@@ -138,7 +229,7 @@ namespace UnityBazel {
 					: copyPkg.outputPath!);
 
 				tasks.Add(PackageQueryComplete(
-					Bazel.QueryOutputs(copyPkg.bazelPackage!),
+					Bazel.QueryOutputs(new List<string>{copyPkg.bazelPackage!}),
 					outputPathPattern: outputPathPattern,
 					executionRoot: infos["execution_root"],
 					bazelBin: infos["bazel-bin"],
