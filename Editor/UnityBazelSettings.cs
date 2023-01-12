@@ -55,8 +55,18 @@ namespace UnityBazel {
 			refresh?.Invoke();
 		}
 
+		[Tooltip("Output path used by default if the output path in Copied Packages is empty")]
 		public string defaultOutputPath = "";
+
+		[Tooltip("Immediate start a bazel build as soon as the edtior starts")]
+		public bool buildOnEditorStart = false;
+
+		[Tooltip("Copy automatically when bazel package(s) output changes")]
+		public bool watchOnEditorStart = false;
+
+		[Tooltip("Bazel packages that will be copied to the specified output path")]
 		public List<UnityBazelPackageCopyOptions>? copiedPackages;
+
 		[ReadOnly]
 		public List<string>? lastCopiedFiles;
 
@@ -100,6 +110,12 @@ namespace UnityBazel {
 					var defaultOutputPathProp = new PropertyField(
 						settings.FindProperty("defaultOutputPath")
 					);
+					var buildOnEditorStartProp = new PropertyField(
+						settings.FindProperty("buildOnEditorStart")
+					);
+					var watchOnEditorStart = new PropertyField(
+						settings.FindProperty("watchOnEditorStart")
+					);
 					var copiedPackagesProp = new PropertyField(
 						settings.FindProperty("copiedPackages")
 					);
@@ -108,6 +124,8 @@ namespace UnityBazel {
 					var lastCopiedFilesPropField = new PropertyField(lastCopiedFilesProp);
 
 					properties.Add(defaultOutputPathProp);
+					properties.Add(buildOnEditorStartProp);
+					properties.Add(watchOnEditorStart);
 					properties.Add(copiedPackagesProp);
 
 					var refreshButton = new Button() { text = "Refresh" };
