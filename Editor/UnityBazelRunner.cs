@@ -99,6 +99,7 @@ namespace UnityBazel {
 				null,
 				Progress.Options.Indefinite
 			);
+			Progress.SetTimeDisplayMode(watchProgressId, Progress.TimeDisplayMode.NoTimeShown);
 			SessionState.SetInt(watchProgressIdSessionKey, watchProgressId);
 
 			foreach(var outputPath in outputPaths) {
