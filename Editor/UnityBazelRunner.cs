@@ -118,6 +118,7 @@ namespace UnityBazel {
 				watcher.Changed += (_, ev) => {
 					var relPath = Path.GetRelativePath(directory, ev.FullPath);
 					Progress.SetDescription(childWatchProgress, $"{relPath} changed");
+					UnityEditor.EditorApplication.delayCall += async () => await CopyPackages();
 				};
 
 				watcher.EnableRaisingEvents = true;
